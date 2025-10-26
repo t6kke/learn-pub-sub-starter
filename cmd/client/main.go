@@ -3,8 +3,8 @@ package main
 import (
 	"fmt"
 	"log"
-	"os"
-	"os/signal"
+	//"os"
+	//"os/signal"
 
 	amqp "github.com/rabbitmq/amqp091-go"
 
@@ -34,8 +34,52 @@ func main() {
 		log.Printf("Failed to register new channel and queue in RabbitMQ: %v", err)
 	}
 
+	game_state := gamelogic.NewGameState(username)
+
+	err = pubsub.SubscribeJSON(connection, routing.ExchangePerilDirect, routing.PauseKey+"."+username, routing.PauseKey, pubsub.SimpleQueueType(pubsub.Transient), handlerPause(game_state))
+
+	for {
+		words := gamelogic.GetInput()
+		if len(words) == 0 {
+			continue
+		}
+
+		switch words[0] {
+			case "spawn":
+				err = game_state.CommandSpawn(words)
+				if err != nil {
+					fmt.Println(err)
+					continue
+				}
+			case "move":
+				_, err = game_state.CommandMove(words)
+				if err != nil {
+					fmt.Println(err)
+					continue
+				}
+			case "status":
+				game_state.CommandStatus()
+			case "help":
+				gamelogic.PrintClientHelp()
+			case "spam":
+				fmt.Println("Spamming not allowed yet!")
+			case "quit":
+				gamelogic.PrintQuit()
+				return
+			default:
+				fmt.Printf("Did not reccodnize command: %s\n", words[0])
+		}
+	}
+
 	// wait for ctrl+c
-	signalChan := make(chan os.Signal, 1)
-	signal.Notify(signalChan, os.Interrupt)
-	<-signalChan
+	//signalChan := make(chan os.Signal, 1)
+	//signal.Notify(signalChan, os.Interrupt)
+	//<-signalChan
+}
+
+func handlerPause(gs *gamelogic.GameState) func(routing.PlayingState) {
+	return func(ps routing.PlayingState) {
+		defer fmt.Print("> ")
+		gs.HandlePause(ps)
+	}
 }

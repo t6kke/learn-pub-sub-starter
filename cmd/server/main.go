@@ -25,9 +25,14 @@ func main() {
 
 	fmt.Println("Connection successfully created")
 
+	_, _, err = pubsub.DeclareAndBind(connection, routing.ExchangePerilTopic, routing.GameLogSlug, routing.GameLogSlug+".*", pubsub.SimpleQueueType(pubsub.Durable))
+	if err != nil {
+		log.Printf("Failed to register new channel and queue in RabbitMQ: %v", err)
+	}
+
 	gamelogic.PrintServerHelp()
 
-	forLoop:for {
+	for {
 		words := gamelogic.GetInput()
 		if len(words) == 0 {
 			continue
@@ -43,7 +48,7 @@ func main() {
 				pause_var = false
 			case "quit":
 				log.Println("Closing Server")
-				break forLoop
+				return
 			default:
 				log.Printf("Did not reccodnize command: %s\n", words[0])
 		}
