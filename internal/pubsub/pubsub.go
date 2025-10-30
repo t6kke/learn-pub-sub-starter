@@ -1,6 +1,7 @@
 package pubsub
 
 import (
+	//"log"
 	"context"
 	"encoding/json"
 
@@ -14,6 +15,13 @@ const (
 	Transient SimpleQueueType = iota
 )
 
+type Acktype int
+
+const (
+	Ack         Acktype = iota
+	NackRequeue Acktype = iota
+	NackDiscard Acktype = iota
+)
 
 func PublishJSON[T any](ch *amqp.Channel, exchange, key string, val T) error {
 	jsonData, err := json.Marshal(val)
@@ -48,7 +56,9 @@ func DeclareAndBind(conn *amqp.Connection, exchange, queueName, key string, queu
 			exclusive = true
 	}
 
-	new_queue, err := new_channel.QueueDeclare(queueName, durable, autoDelete, exclusive, false, nil)
+	data_table := amqp.Table{"x-dead-letter-exchange": "peril_dlx"}
+
+	new_queue, err := new_channel.QueueDeclare(queueName, durable, autoDelete, exclusive, false, data_table)
 	if err != nil {
 		return nil, amqp.Queue{}, err
 	}
@@ -62,12 +72,11 @@ func DeclareAndBind(conn *amqp.Connection, exchange, queueName, key string, queu
 }
 
 
-func SubscribeJSON[T any](conn *amqp.Connection, exchange, queueName, key string, queueType SimpleQueueType, handler func(T)) error {
+func SubscribeJSON[T any](conn *amqp.Connection, exchange, queueName, key string, queueType SimpleQueueType, handler func(T) Acktype) error {
 	channel, queue, err := DeclareAndBind(conn, exchange, queueName, key, queueType)
 	if err != nil {
 		return err
 	}
-
 
 	new_chan, err := channel.Consume(queue.Name, "", false, false, false, false, nil)
 	if err != nil {
@@ -79,8 +88,19 @@ func SubscribeJSON[T any](conn *amqp.Connection, exchange, queueName, key string
 		for message := range new_chan {
 			var data T
 			_ = json.Unmarshal(message.Body, &data)
-			handler(data)
-			message.Ack(false)
+			ack_type := handler(data)
+			switch ack_type {
+				case Acktype(Ack):
+					//log.Printf("Ack call\n")
+					message.Ack(false)
+				case Acktype(NackRequeue):
+					//log.Printf("Nack requeue call\n")
+					message.Nack(false, true)
+				case Acktype(NackDiscard):
+					//log.Printf("Nack discard call\n")
+					message.Nack(false, false)
+			}
+
 		}
 	}()
 	return nil
