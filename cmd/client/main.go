@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"log"
+	"time"
 	//"os"
 	//"os/signal"
 
@@ -45,7 +46,7 @@ func main() {
 	err = pubsub.SubscribeJSON(connection, routing.ExchangePerilTopic, routing.ArmyMovesPrefix+"."+username, routing.ArmyMovesPrefix+".*", pubsub.SimpleQueueType(pubsub.Transient), handlerMove(game_state, channel))
 	//TODO error handling
 
-	err = pubsub.SubscribeJSON(connection, routing.ExchangePerilTopic, routing.WarRecognitionsPrefix, routing.WarRecognitionsPrefix+".*", pubsub.SimpleQueueType(pubsub.Durable), handlerWar(game_state))
+	err = pubsub.SubscribeJSON(connection, routing.ExchangePerilTopic, routing.WarRecognitionsPrefix, routing.WarRecognitionsPrefix+".*", pubsub.SimpleQueueType(pubsub.Durable), handlerWar(game_state, channel))
 	//TODO error handling
 
 	for {
@@ -126,24 +127,50 @@ func handlerMove(gs *gamelogic.GameState, ch *amqp.Channel) func(gamelogic.ArmyM
 	}
 }
 
-func handlerWar(gs *gamelogic.GameState) func(gamelogic.RecognitionOfWar) pubsub.Acktype {
+func handlerWar(gs *gamelogic.GameState, ch *amqp.Channel) func(gamelogic.RecognitionOfWar) pubsub.Acktype {
 	return func(rw gamelogic.RecognitionOfWar) pubsub.Acktype {
 		defer fmt.Print("> ")
-		outcome, _, _ := gs.HandleWar(rw)
+		outcome, winner, loser := gs.HandleWar(rw)
+		var result_acktype pubsub.Acktype
+		var win_log_message string
 		switch outcome {
 			case gamelogic.WarOutcomeNotInvolved:
-				return pubsub.NackRequeue
+				result_acktype = pubsub.NackRequeue
 			case gamelogic.WarOutcomeNoUnits:
-				return pubsub.NackDiscard
+				result_acktype = pubsub.NackDiscard
 			case gamelogic.WarOutcomeOpponentWon:
-				return pubsub.Ack
+				result_acktype = pubsub.Ack
+				win_log_message = fmt.Sprintf("%s won a war against %s", winner, loser)
 			case gamelogic.WarOutcomeYouWon:
-				return pubsub.Ack
+				result_acktype = pubsub.Ack
+				win_log_message = fmt.Sprintf("%s won a war against %s", winner, loser)
 			case gamelogic.WarOutcomeDraw:
-				return pubsub.Ack
+				result_acktype = pubsub.Ack
+				win_log_message = fmt.Sprintf("A war between %s and %s resulted in a draw", winner, loser)
 			default:
 				fmt.Println("not a valid outcome")
-				return pubsub.NackDiscard
+				result_acktype = pubsub.NackDiscard
 		}
+		err := publisGameLog(ch, win_log_message, gs.GetUsername())
+		if err != nil {
+			result_acktype = pubsub.NackRequeue
+		} else {
+			result_acktype = pubsub.Ack
+		}
+
+		return result_acktype
 	}
+}
+
+func publisGameLog(ch *amqp.Channel, message, username string) error {
+	data := routing.GameLog{
+		CurrentTime: time.Now(),
+		Message:     message,
+		Username:    username,
+	}
+	err := pubsub.PublishGob(ch, routing.ExchangePerilTopic, routing.GameLogSlug+"."+username, data)
+	if err != nil {
+		return err
+	}
+	return nil
 }
