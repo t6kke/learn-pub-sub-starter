@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"log"
 	"time"
+	"strconv"
 	//"os"
 	//"os/signal"
 
@@ -79,7 +80,19 @@ func main() {
 			case "help":
 				gamelogic.PrintClientHelp()
 			case "spam":
-				fmt.Println("Spamming not allowed yet!")
+				if len(words) < 2 {
+					fmt.Println("Please provide a number value")
+					continue
+				}
+				spam_count, err := strconv.Atoi(words[1])
+				if err != nil {
+					fmt.Println("Not a valid number provided")
+					continue
+				}
+				for i := 0; i <= spam_count; i++ {
+					message := gamelogic.GetMaliciousLog()
+					publisGameLog(channel, message, username)
+				}
 			case "quit":
 				gamelogic.PrintQuit()
 				return
