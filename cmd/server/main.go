@@ -25,12 +25,14 @@ func main() {
 
 	fmt.Println("Connection successfully created")
 
-	_, _, err = pubsub.DeclareAndBind(connection, routing.ExchangePerilTopic, routing.GameLogSlug, routing.GameLogSlug+".*", pubsub.SimpleQueueType(pubsub.Durable))
+	//_, _, err = pubsub.DeclareAndBind(connection, routing.ExchangePerilTopic, routing.GameLogSlug, routing.GameLogSlug+".*", pubsub.SimpleQueueType(pubsub.Durable))
+	err = pubsub.SubscribeGob(connection, routing.ExchangePerilTopic, routing.GameLogSlug, routing.GameLogSlug+".*", pubsub.SimpleQueueType(pubsub.Durable), handlerLogs())
 	if err != nil {
 		log.Printf("Failed to register new channel and queue in RabbitMQ: %v", err)
 	}
 
 	gamelogic.PrintServerHelp()
+
 
 	for {
 		words := gamelogic.GetInput()
@@ -66,4 +68,17 @@ func main() {
 	//signal.Notify(signalChan, os.Interrupt)
 	//<-signalChan
 	//fmt.Println("Connection closed")
+}
+
+func handlerLogs() func(gamelog routing.GameLog) pubsub.Acktype {
+	return func(gamelog routing.GameLog) pubsub.Acktype {
+		defer fmt.Print("> ")
+
+		err := gamelogic.WriteLog(gamelog)
+		if err != nil {
+			fmt.Printf("error writing log: %v\n", err)
+			return pubsub.NackRequeue
+		}
+		return pubsub.Ack
+	}
 }
